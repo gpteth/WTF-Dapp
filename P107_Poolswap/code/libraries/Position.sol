@@ -9,16 +9,16 @@ library Position {
         //截至上次更新流动性或所欠费用时每单位流动性的费用增长
         uint256 feeGrowthInside0LastX128;
         uint256 feeGrowthInside1LastX128;
-        //token0/token1 中欠仓位所有者的费用
+        //token0/token1 中欠头寸所有者的费用
         uint128 tokensOwed0;
         uint128 tokensOwed1;
     }
 
-    /// @notice Returns the Info struct of a position, given an owner and position boundaries
+    /// @notice 返回position 的信息结构，给定所有者和 position 边界
     ///@param self 包含所有用户流动性的映射
-    ///@param Owner 仓位所有者的地址
+    ///@param Owner 头寸所有者的地址
     ///@param tickLower 持仓下刻度线边界
-    ///@param tickUpper 仓位上刻度边界
+    ///@param tickUpper 头寸上刻度边界
     ///@returnposition 给定所有者流动性的流动性信息结构体
     function get(
         mapping(bytes32 => Info) storage self,
