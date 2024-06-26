@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity ^0.8.24;
 
+
+//价格预言机库
 library Oracle {
+    // 在 Oracle 库中，定义了数据结构 Observation，即存储预言机数据的数据结构：
     struct Observation {
-        // the block timestamp of the observation
+        // 每个 observation 所存储的时间戳
         uint32 blockTimestamp;
-        // the tick accumulator, i.e. tick * time elapsed since the pool was first initialized
+        // 这是自池子创建之后的 tick * time 的累计值
         int56 tickCumulative;
         // the seconds per liquidity, i.e. seconds elapsed / max(1, liquidity) since the pool was first initialized
         uint160 secondsPerLiquidityCumulativeX128;
-        // whether or not the observation is initialized
+        // 表明该 observation 是否已经初始化
         bool initialized;
     }
 

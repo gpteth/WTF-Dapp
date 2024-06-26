@@ -5,7 +5,7 @@ pragma solidity ^0.8.24;
 /// @title Computes the result of a swap within ticks
 /// @notice Contains methods for computing the result of a swap within a single tick price range, i.e., a single tick.
 library SwapMath {
-    /// @notice Computes the result of swapping some amount in, or amount out, given the parameters of the swap
+    /// @notice 这里计算了交易是否能在目标价格范围内结束，以及消耗的 tokenIn 和得到的 tokenOut
     /// @dev The fee, plus the amount in, will never exceed the amount remaining if the swap's `amountSpecified` is positive
     /// @param sqrtRatioCurrentX96 The current sqrt price of the pool
     /// @param sqrtRatioTargetX96 The price that cannot be exceeded, from which the direction of the swap is inferred
@@ -63,11 +63,12 @@ library SwapMath {
                     zeroForOne
                 );
         }
-
+        // 判断是否能够到达目标价
         bool max = sqrtRatioTargetX96 == sqrtRatioNextX96;
 
-        // get the input/output amounts
+        // 获取输入/输出量
         if (zeroForOne) {
+            // 根据是否到达目标价格，计算 amountIn/amountOut 的值
             amountIn = max && exactIn
                 ? amountIn
                 : SqrtPriceMath.getAmount0Delta(sqrtRatioNextX96, sqrtRatioCurrentX96, liquidity, true);
@@ -83,13 +84,16 @@ library SwapMath {
                 : SqrtPriceMath.getAmount0Delta(sqrtRatioCurrentX96, sqrtRatioNextX96, liquidity, false);
         }
 
-        // cap the output amount to not exceed the remaining output amount
+        // 这里对 Output 进行 cap 是因为前面在计算 amountOut 时，有可能会使用 sqrtRatioNextX96 来进行计算，而 sqrtRatioNextX96
+        // 可能被 Round 之后导致 sqrt_P 偏大，从而导致计算的 amountOut 偏大
         if (!exactIn && amountOut > uint256(-amountRemaining)) {
             amountOut = uint256(-amountRemaining);
         }
 
         if (exactIn && sqrtRatioNextX96 != sqrtRatioTargetX96) {
-            // we didn't reach the target, so take the remainder of the maximum input as fee
+            // 如果没能到达目标价，即交易结束，剩余的 tokenIn 将全部作为手续费
+        // 为了不让计算进一步复杂化，这里直接将剩余的 tokenIn 将全部作为手续费
+        // 因此会多收取一部分手续费，即按本次交易的最大手续费收取
             feeAmount = uint256(amountRemaining) - amountIn;
         } else {
             feeAmount = FullMath.mulDivRoundingUp(amountIn, feePips, 1e6 - feePips);
