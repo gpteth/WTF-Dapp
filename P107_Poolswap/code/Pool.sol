@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity ^0.8.24;
 import './interfaces/IUniswapV3Pool.sol';
+import './interfaces/pool/IPool.sol';
 
 import './NoDelegateCall.sol';
 
@@ -28,7 +29,103 @@ import './interfaces/callback/IUniswapV3MintCallback.sol';
 import './interfaces/callback/IUniswapV3SwapCallback.sol';
 import './interfaces/callback/IUniswapV3FlashCallback.sol';
 
-contract Pool is IPool, NoDelegateCall {
+interface IMintCallback {
+    function mintCallback(
+        uint256 amount0Owed,
+        uint256 amount1Owed,
+        bytes calldata data
+    ) external;
+}
+
+interface ISwapCallback {
+    function swapCallback(
+        int256 amount0Delta,
+        int256 amount1Delta,
+        bytes calldata data
+    ) external;
+}
+
+interface IPool {
+    function factory() external view returns (address);
+
+    function token0() external view returns (address);
+
+    function token1() external view returns (address);
+
+    function fee() external view returns (uint24);
+
+    function tickLower() external view returns (int24);
+
+    function tickUpper() external view returns (int24);
+
+    function sqrtPriceX96() external view returns (uint160);
+
+    function tick() external view returns (int24);
+
+    function liquidity() external view returns (uint128);
+
+    function initialize(
+        uint160 sqrtPriceX96,
+        int24 tickLower,
+        int24 tickUpper
+    ) external;
+
+    event Mint(
+        address sender,
+        address indexed owner,
+        uint128 amount,
+        uint256 amount0,
+        uint256 amount1
+    );
+
+    function mint(
+        address recipient,
+        uint128 amount,
+        bytes calldata data
+    ) external returns (uint256 amount0, uint256 amount1);
+
+    event Collect(
+        address indexed owner,
+        address recipient,
+        uint128 amount0,
+        uint128 amount1
+    );
+
+    function collect(
+        address recipient
+    ) external returns (uint128 amount0, uint128 amount1);
+
+    event Burn(
+        address indexed owner,
+        uint128 amount,
+        uint256 amount0,
+        uint256 amount1
+    );
+
+    function burn(
+        uint128 amount
+    ) external returns (uint256 amount0, uint256 amount1);
+
+    event Swap(
+        address indexed sender,
+        address indexed recipient,
+        int256 amount0,
+        int256 amount1,
+        uint160 sqrtPriceX96,
+        uint128 liquidity,
+        int24 tick
+    );
+
+    function swap(
+        address recipient,
+        bool zeroForOne,
+        int256 amountSpecified,
+        uint160 sqrtPriceLimitX96,
+        bytes calldata data
+    ) external returns (int256 amount0, int256 amount1);
+}
+
+abstract contract Pool is IPool, NoDelegateCall {
     using LowGasSafeMath for uint256;
     using LowGasSafeMath for int256;
     using SafeCast for uint256;
@@ -48,24 +145,24 @@ contract Pool is IPool, NoDelegateCall {
 
     int24 public   tickSpacing;
 
-    address  private _factory;
+    address  public _factory;
     // address public   factory;
 
-    address private   _token0;
+    address public   _token0;
 
-    address private   _token1;
+    address public   _token1;
 
-    uint24 private   _fee;
+    uint24 public   _fee;
 
 
-    int24 private   _tickSpacing;
+    int24 public   _tickSpacing;
     // 表示每个 tick 能接受的最大流动性
-    uint128 private   _maxLiquidityPerTick;
+    uint128 public   _maxLiquidityPerTick;
     // 记录了池子当前可用的流动性
-    uint128 private  liquidity_;
+    uint128 public  liquidity_;
 
-    int24 private _tickLower;
-    int24 private _tickUpper;
+    int24 public _tickLower;
+    int24 public _tickUpper;
     struct ProtocolFees {
         uint128 token0;
         uint128 token1;
@@ -135,7 +232,7 @@ contract Pool is IPool, NoDelegateCall {
         return slot0.tick;
     }
 
-    function liquidity() external view override returns (uint128) {
+    function liquidity() external view  returns (uint128) {
         return liquidity_;
     }
 
@@ -154,7 +251,7 @@ contract Pool is IPool, NoDelegateCall {
     )
         external
         view
-        override
+        
         returns (uint128 _liquidity, uint128 tokensOwed0, uint128 tokensOwed1)
     {
         bytes32 key = bytes32(uint256(uint8(positionType)));
@@ -189,19 +286,20 @@ contract Pool is IPool, NoDelegateCall {
     }
     // 添加流动性
     function mint(
-        address recipient,        // 流动性的接收者地址
-        int8 positionType,          
+        address recipient,
+        int24 tickLower,
+        int24 tickUpper,
         uint128 amount,
         bytes calldata data
-    ) external override returns (uint256 amount0, uint256 amount1) {
+    ) external  returns (uint256 amount0, uint256 amount1) {
         require(amount > 0);
         (, int256 amount0Int, int256 amount1Int) =
             _modifyPosition(
                 ModifyPositionParams({
                     owner: recipient,
-                    tickLower: tickLower,
-                    tickUpper: tickUpper,
-                    liquidityDelta: int256(amount).toInt128()
+                    tickLower: _tickLower,
+                    tickUpper: _tickUpper,
+                    liquidityDelta: int128(amount)
                 })
             );
 
@@ -216,23 +314,24 @@ contract Pool is IPool, NoDelegateCall {
         if (amount0 > 0) require(balance0Before.add(amount0) <= balance0(), 'M0');
         if (amount1 > 0) require(balance1Before.add(amount1) <= balance1(), 'M1');
 
-        emit Mint(msg.sender, recipient, tickLower, tickUpper, amount, amount0, amount1);
+        emit Mint(msg.sender, recipient, amount, amount0, amount1);
     }
     // 提取收益
     function collect(
         address recipient,
         int8 positionType
-    ) external override returns (uint128 amount0, uint128 amount1) {
+    ) external  returns (uint128 amount0, uint128 amount1) {
 
     }
 
     struct ModifyPositionParams {
-        // the address that owns the position
+        // 流动性的接收者地址
         address owner;
-        // the lower and upper tick of the position
+        // 区间价格下限的 tick 序号
         int24 tickLower;
+        // 区间价格上限的 tick 序号
         int24 tickUpper;
-        // any change in liquidity
+        // 待添加的流动性数量
         int128 liquidityDelta;
     }
 
@@ -403,16 +502,15 @@ contract Pool is IPool, NoDelegateCall {
     // 移除流动性时的处理方式并不是直接把两种 token 资产转给用户，而是先累加到 tokensOwed0 和 tokensOwed1，代表这是欠用户的资产，其中也包括该头寸已赚取到的手续费。
     // 之后，用户其实是要通过 collect 函数来提取 tokensOwed0 和 tokensOwed1 里的资产。
     function burn(
-        int8 positionType
-    ) external override returns (uint256 amount0, uint256 amount1) {
-        int128 amount;
+        uint128 amount
+    ) external  returns (uint256 amount0, uint256 amount1) {
         (Position.Info storage position, int256 amount0Int, int256 amount1Int) =
             _modifyPosition(
                 ModifyPositionParams({
                     owner: msg.sender,
                     tickLower: _tickLower,
                     tickUpper: _tickUpper,
-                    liquidityDelta: -int256(amount).toInt128()   // 移除流动性需转为负数
+                    liquidityDelta: int128(amount)   // 移除流动性需转为负数
                 })
             );
         // 将负数转为正数
@@ -426,7 +524,7 @@ contract Pool is IPool, NoDelegateCall {
             );
         }
 
-        emit Burn(msg.sender, positionType, uint128(amount), amount0, amount1);
+        emit Burn(msg.sender,  uint128(amount), amount0, amount1);
     }
 
     struct SwapCache {
